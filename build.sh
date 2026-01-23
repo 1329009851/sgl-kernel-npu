@@ -122,17 +122,8 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS \
-    -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
-    -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
-    -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \
-    -DSOC_VERSION=$SOC_VERSION \
-    -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
-    -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
-    -B "$BUILD_DIR" \
-    -S .
-
-    cmake --build "$BUILD_DIR" --target install -j 16
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
+    cmake --build "$BUILD_DIR" --target install
     cd -
 }
 
@@ -181,6 +172,16 @@ function build_memory_saver()
     cd -
 }
 
+function create_deepep_cmake()
+{
+    cd csrc || exit
+    chmod +x build.sh
+    chmod +x deepep/build.sh
+    chmod +x deepep/compile_ascend_proj.sh
+    ./build.sh
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -209,7 +210,7 @@ function make_sgl_kernel_npu_package()
 
 function main()
 {
-
+    create_deepep_cmake
     build_kernels
     build_deepep_kernels
     if pip3 show wheel;then
