@@ -69,11 +69,8 @@ DelOps() {
 
 # Build the operator project and transfer its output to the specified location
 BuildAscendProj() {
-  local os_id=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
-  local arch=$(uname -m)
   local soc_version=$2
-  local is_extract=$3
-  local build_type=$4
+
   # Modify the default operator name
   export OPS_PROJECT_NAME=aclnnInner
   # Enter the compilation path

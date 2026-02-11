@@ -4,7 +4,7 @@ export MODULE_SRC_PATH="${SRC_PATH}/${MODULE_NAME}"
 export MODULE_SCRIPTS_PATH="${SCRIPTS_PATH}/${MODULE_NAME}"
 export MODULE_BUILD_OUT_PATH="${BUILD_OUT_PATH}/${MODULE_NAME}"
 export MODULE_TEST_PATH="${TEST_PATH}/${MODULE_NAME}"
-IS_EXTRACT=0
+
 SOC_VERSION=$1
 ENABLE_UT_BUILD=0
 ENABLE_PYBIND_BUILD=0
@@ -15,7 +15,7 @@ BuildPybind() {
   if [ -d $DIST_OUT_PATH/dist ]; then
     rm -rf $DIST_OUT_PATH/dist
   fi
-  EXT_PATH=$MODULE_SRC_PATH
+  EXT_PATH=$MODULE_SRC_PATH/pybind/ext
   cd $EXT_PATH
   sh build.sh
   DIST_GEN_PATH=$EXT_PATH/dist/
@@ -61,12 +61,6 @@ while getopts "c:xdtprh" opt; do
   c)
     SOC_VERSION=$OPTARG
     ;;
-  x)
-    IS_EXTRACT=1
-    ;;
-  d)
-    export BUILD_TYPE="Debug"
-    ;;
   t)
     ENABLE_UT_BUILD=1
     ENABLE_SRC_BUILD=0
@@ -74,10 +68,6 @@ while getopts "c:xdtprh" opt; do
   p)
     ENABLE_PYBIND_BUILD=1
     ENABLE_SRC_BUILD=0
-    ;;
-  r)
-    export BUILD_TYPE="Debug"
-    export ENABLE_COV=1
     ;;
   h)
     PrintHelp
@@ -97,11 +87,11 @@ echo "ENABLE_SRC_BUILD=$ENABLE_SRC_BUILD"
 if [ $ENABLE_SRC_BUILD -eq 1 ]; then
   echo "SOC_VERSION=$SOC_VERSION"
   if [[ "$SOC_VERSION" == "all" ]]; then
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382 $IS_EXTRACT $BUILD_TYPE"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382 $IS_EXTRACT $BUILD_TYPE
+    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382"
+    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382
   else
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION $IS_EXTRACT $BUILD_TYPE"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION $IS_EXTRACT $BUILD_TYPE
+    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION"
+    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION
   fi
   if [ $? -ne 0 ]; then
     exit 1
