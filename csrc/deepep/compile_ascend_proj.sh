@@ -58,6 +58,15 @@ BuildOps() {
   rm -rf ./${proj_name}/op_kernel/add_custom*
 }
 
+DelOps() {
+  local proj_name=$1
+  echo "${proj_name}"
+
+  if [ -d "./${proj_name}" ]; then
+    rm -rf ${proj_name}
+  fi
+}
+
 # Build the operator project and transfer its output to the specified location
 BuildAscendProj() {
   local os_id=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
@@ -77,6 +86,12 @@ BuildAscendProj() {
   CopyOps "./ops2" "./ops2_${soc_version}"
   cp -r ./ops_${soc_version}/cmake ./ops
   cp -r ./ops2_${soc_version}/cmake ./ops2
+  cp -r ./ops_${soc_version}/CMakePresets.json ./ops
+  cp -r ./ops2_${soc_version}/CMakePresets.json ./ops2
+  DelOps "ops_${soc_version}"
+  DelOps "ops2_${soc_version}"
+  sed -i 's/customize/hwcomputing/g' ./ops/CMakePresets.json
+  sed -i 's/customize/hwcomputing/g' ./ops2/CMakePresets.json
 }
 
 BuildAscendProj $1 $2 $3 $4

@@ -187,7 +187,8 @@ function create_deepep_cmake()
     chmod +x deepep_cmake_build.sh
     chmod +x deepep/build.sh
     chmod +x deepep/compile_ascend_proj.sh
-    ./deepep_cmake_build.sh
+    echo "./deepep_cmake_build.sh all $SOC_VERSION"
+    ./deepep_cmake_build.sh all $SOC_VERSION
     cd -
 }
 
