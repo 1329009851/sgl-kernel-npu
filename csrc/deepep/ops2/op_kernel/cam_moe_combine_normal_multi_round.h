@@ -11,7 +11,7 @@ namespace CamMoeCombineNormalMultiRoundImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t STATE_WIN_SIZE = 4UL * 1024UL * 1024UL;
+constexpr uint64_t STATE_WIN_SIZE = 8UL * 1024UL * 1024UL;
 constexpr uint64_t STATE_WIN_SIZE_HALF = STATE_WIN_SIZE / 2;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET + Moe::ROUND_STATE_MAX_SIZE * 2UL;  // 458*1024
@@ -45,7 +45,7 @@ public:
     __aicore__ inline CamMoeCombineNormalMultiRound(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                 GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
+                                GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling);
     __aicore__ inline void Process();
 
 private:
@@ -53,7 +53,7 @@ private:
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
                                             GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR XOut,
                                             GM_ADDR sendCostStatsOut);
-    __aicore__ inline void InitTilingData(const CamMoeCombineNormalTilingData *tilingData);
+    __aicore__ inline void InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
@@ -69,13 +69,7 @@ private:
 
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
     {
-        GM_ADDR bufferAddr;
-        if (epRankId_ == rankId) {
-            bufferAddr = (GM_ADDR)epWinContext_->localWindowsIn;
-        } else {
-            bufferAddr = (GM_ADDR)((HcclRankRelationResV2 *)epWinContext_->remoteRes[rankId].nextDevicePtr)->windowsIn;
-        }
-        return (GM_ADDR)(bufferAddr + winDataSizeOffset_ + Moe::NOTIFY_DISPATCH_BUFF_OFFSET);
+        return hccl_.GetWindowsInAddr(rankId) + winDataSizeOffset_ + Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
     }
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
@@ -85,11 +79,7 @@ private:
 
     __aicore__ inline GM_ADDR GetRoundStateAddrByRankId(const int32_t rankId)
     {
-        if (epRankId_ == rankId) {
-            return (GM_ADDR)(epWinContext_->localWindowsExp) + roundMagic_ * Moe::ROUND_STATE_MAX_SIZE +
-                   ROUND_STATE_OFFSET;
-        }
-        return (GM_ADDR)(((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))->windowsExp) +
+        return hccl_.GetWindowsInAddr(rankId) + totalWinSize_ - Moe::STATE_SIZE +
                roundMagic_ * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
@@ -108,8 +98,7 @@ private:
         endIdx = startIdx + perCoreNum;
     }
 
-    __gm__ HcclOpResParam *epWinContext_{nullptr};
-    __gm__ HcclOpResParam *tpWinContext_{nullptr};
+    Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
     uint32_t axisBS_{0};
     uint32_t axisH_{0};
     uint32_t axisK_{0};
@@ -131,6 +120,7 @@ private:
     uint32_t roundIndex_{0};
     uint32_t realMaxBs_{0};
     uint32_t perRoundTokens_{0};
+    uint64_t totalWinSize_{0};
     uint32_t maxRound_{0};
     // send用到的数据
     uint32_t sendCostStatsBufSize_{0};
@@ -195,12 +185,9 @@ private:
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitMagic()
 {
-    auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
-
     GlobalTensor<int32_t> selfMagicTensor;
-    selfMagicTensor.SetGlobalBuffer(
-        (__gm__ int32_t *)((GM_ADDR)epWinContext_->localWindowsExp + MAGIC_WIN_OFFSET + coreIdx_ * WIN_512_ALIGN));
+    selfMagicTensor.SetGlobalBuffer((__gm__ int32_t *)(hccl_.GetWindowsInAddr(epRankId_) + totalWinSize_ -
+                                                       Moe::STATE_SIZE + MAGIC_WIN_OFFSET + coreIdx_ * WIN_512_ALIGN));
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
     magic_ = selfMagicTensor(0);
     selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
@@ -225,7 +212,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitG
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void
-CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNormalTilingData *tilingData)
+CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData)
 {
     axisBS_ = tilingData->camMoeCombineNormalInfo.bs;
     axisH_ = tilingData->camMoeCombineNormalInfo.h;
@@ -239,6 +226,7 @@ CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTilingData(const CamMoeC
     realMaxBs_ = tilingData->camMoeCombineNormalInfo.realMaxBs;
     maxRound_ = tilingData->camMoeCombineNormalInfo.maxRound;
     perRoundTokens_ = tilingData->camMoeCombineNormalInfo.perRoundTokens;
+    totalWinSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize;
 }
 
 template <TemplateMC2TypeClass>
@@ -332,21 +320,29 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
     GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
-    GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-    const CamMoeCombineNormalTilingData *tilingData)
+    GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
     coreIdx_ = GetBlockIdx();
     stateOffset_ = STATE_OFFSET;
 
-    InitMagic();
+    auto tilingData = (__gm__ CamMoeCombineNormalTilingData *)tiling;
+    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
+    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
+
+    auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+
+    hccl_.Init(contextGM0, mc2InitTiling);
+    hccl_.SetCcTiling(mc2CcTiling);
+
     InitTilingData(tilingData);
+    InitMagic();
     InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, XOut, sendCostStatsOut);
     InitBuffLen();
     combineDataBuffSize_ = perRoundTokens_ * axisK_ * h512AlignRecvXLen_;
     PipeBarrier<PIPE_ALL>();
-    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData->camMoeCombineNormalInfo.totalWinSize / 2UL);
+    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * ((totalWinSize_ - 4 * Moe::STATE_SIZE) / 2UL);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);
 
@@ -646,6 +642,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Proce
             roundIndex_ += 1;
         }
     }
+    hccl_.Finalize();
 }
 
 }  // namespace CamMoeCombineNormalMultiRoundImpl
