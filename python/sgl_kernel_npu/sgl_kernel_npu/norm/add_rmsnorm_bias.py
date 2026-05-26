@@ -1,7 +1,6 @@
 import torch
 import triton
 import triton.language as tl
-import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -50,7 +49,7 @@ def add_rmsnorm_bias_kernel(
             for block_offset in range(0, hidden_size, COL_BLOCK_SIZE):
                 col_indices = block_offset + block_cols
                 valid_mask2 = col_indices < hidden_size
-                block_buffered_values = al.extract_slice(
+                block_buffered_values = tl.extract_slice(
                     buffered_values, (block_offset,), (COL_BLOCK_SIZE,), (1,)
                 )
                 # quant
@@ -194,9 +193,9 @@ def add_gemma_rms_norm(
     variance_epsilon,
 ):
     batch, dim = hidden_state.shape
-    # if dim > 2048:
-    #     raise NotImplementedError("dim > 2048 not supported")
-    ROW_BLOCK_SIZE = 2  # A safe default balancing parallelism and register pressure.
+    if dim > 2048:
+        raise NotImplementedError("dim > 2048 not supported")
+    ROW_BLOCK_SIZE = 4  # A safe default balancing parallelism and register pressure.
     BLOCK_M = min(ROW_BLOCK_SIZE, batch)
 
     _, num_vectorcore = get_device_properties()
