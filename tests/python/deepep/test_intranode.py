@@ -623,6 +623,13 @@ if __name__ == "__main__":
         default="bf16",
         help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
     )
+    parser.add_argument(
+        "--sync-bench",
+        dest="sync_bench",
+        action="store_true",
+        help="Enable rank synchronization (dist.barrier) before combine bench. "
+        "Prevents timeout with tiny token counts.",
+    )
     args = parser.parse_args()
 
     num_processes = args.num_processes
