@@ -1,11 +1,12 @@
 import argparse
 import os
 import random
-import threading
 import time
 from typing import Optional
 
+# noinspection PyUnresolvedReferences
 import deep_ep
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch_npu
@@ -35,22 +36,8 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
-
-    # dispatch_quant_mode is for bandwidth calc / display only.
-    # The actual resolution (architecture-aware) happens inside buffer.dispatch().
-    if args.use_mxfp4:
-        dispatch_quant_mode = "mx_fp4_e2m1"
-    elif args.use_mxfp8:
-        dispatch_quant_mode = "mx_fp8_e4m3"
-    elif args.use_fp8:
-        dispatch_quant_mode = "pertoken_fp8_e4m3"
-    else:
-        dispatch_quant_mode = None
-    quant_dispatch_kwargs = {
-        "use_fp8": args.use_fp8,
-        "use_mxfp4": args.use_mxfp4,
-        "use_mxfp8": args.use_mxfp8,
-    }
+    quant_type = args.quant_type
+    dispatch_quant_mode = quant_type
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -307,7 +294,7 @@ def test_main(
                 "topk_idx": topk_idx,
                 "topk_weights": topk_weights_pure_rand,
                 "dispatch_wait_recv_cost_stats": dispatch_wait_recv_cost_stats,
-                **quant_dispatch_kwargs,
+                "quant_mode": dispatch_quant_mode,
             }
             if dispatch_wait_recv_cost_stats is not None:
                 bench(lambda: buffer.dispatch(**dispatch_args), num_warmups=0)
@@ -364,22 +351,11 @@ def test_main(
             dispatch_quant_mode not in ("bf16", "int8", None)
             and current_x is x_pure_rand
         )
-        iter_quant = dispatch_quant_mode if current_x is x_pure_rand else "bf16"
-        if iter_quant is None:
-            iter_quant = (
-                "int8"
-                if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-                else "bf16"
-            )
         if local_rank == 0:
             print(
-                f'[testing] Running with {"FP8" if use_fp8 else iter_quant.upper()}, with top-k {num_topk} ...',
+                f'[testing] Running with {"FP8" if use_fp8 else "BF16"}, with top-k {num_topk} ...',
                 flush=True,
             )
-        if current_x is x_pure_rand:
-            quant_kwargs = quant_dispatch_kwargs
-        else:
-            quant_kwargs = {}
         dispatch_args = {
             "x": current_x,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -390,7 +366,7 @@ def test_main(
             "topk_weights": (
                 topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
             ),
-            **quant_kwargs,
+            "quant_mode": dispatch_quant_mode if current_x is x_pure_rand else "bf16",
         }
 
         (
@@ -442,17 +418,7 @@ def test_main(
             "async_finish": False,
             "topk_weights": handle[7],
         }
-        _timer = threading.Timer(
-            30,
-            lambda: (
-                print("[TIMEOUT] combine test: timed out after 30s", flush=True),
-                os._exit(1),
-            ),
-        )
-        _timer.start()
-        dist.barrier()
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
-        _timer.cancel()
         check_x = combined_x.float()
 
         ref_x = x_pure_rand if current_x is x_pure_rand else x
@@ -467,7 +433,7 @@ def test_main(
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
-        diff_threshold = get_diff_threshold(iter_quant)
+        diff_threshold = get_diff_threshold(quant_type)
         assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
@@ -495,17 +461,14 @@ def test_main(
     t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
     if local_rank == 0:
         print(
-            f"[tuning] Dispatch (BF16, raw_bytes={dispatch_bf16_recv_bytes/1e9:.3f}GB) "
-            f"raw_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            f"[tuning] Dispatch (BF16) {dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
             flush=True,
         )
 
-    # Quantized dispatch tuning (int8/fp8/fp4)
-    if dispatch_quant_mode not in ("bf16", None):
+    # FP8 dispatch tuning (if quantized)
+    if dispatch_quant_mode not in ("bf16", "int8", None):
         num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        if dispatch_quant_mode == "int8" or dispatch_quant_mode.startswith(
-            "pertoken_fp8"
-        ):
+        if dispatch_quant_mode.startswith("pertoken_fp8"):
             quant_data_bytes = num_recv_tokens * hidden
             quant_scale_bytes = num_recv_tokens * 4
         elif dispatch_quant_mode.startswith("mx_fp8"):
@@ -515,11 +478,10 @@ def test_main(
             quant_data_bytes = num_recv_tokens * hidden // 2
             quant_scale_bytes = num_recv_tokens * hidden // 32
         else:
-            raise ValueError(
-                f"Unsupported quant_mode for bandwidth calculation: {dispatch_quant_mode}"
-            )
-        quant_recv_bytes = quant_data_bytes + quant_scale_bytes
-        tune_args_quant = {
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = 0
+        fp8_recv_bytes = quant_data_bytes + quant_scale_bytes
+        tune_args_fp8 = {
             "x": x,
             "config": config,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -527,13 +489,13 @@ def test_main(
             "num_tokens_per_expert": ref_num_tokens_per_expert,
             "topk_idx": topk_idx,
             "topk_weights": topk_weights,
-            **quant_dispatch_kwargs,
+            "quant_mode": dispatch_quant_mode,
         }
-        t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
+        t = bench(lambda: buffer.dispatch(**tune_args_fp8))[0]
         if local_rank == 0:
             print(
-                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
-                f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={fp8_recv_bytes/1e9:.3f}GB) "
+                f"{dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
 
@@ -545,7 +507,7 @@ def test_main(
         "config": config,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
-        **quant_dispatch_kwargs,
+        "quant_mode": dispatch_quant_mode,
     }
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
@@ -557,17 +519,9 @@ def test_main(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    _timer = threading.Timer(
-        30,
-        lambda: (
-            print("[tuning] Combine TIMEOUT: timed out after 30s", flush=True),
-            os._exit(1),
-        ),
-    )
-    _timer.start()
-    _sync_fn = dist.barrier if args.sync_bench else None
-    t = bench(lambda: buffer.combine(**tune_args), sync_fn=_sync_fn)[0]
-    _timer.cancel()
+    if args.sync_bench:
+        dist.barrier()
+    t = bench(lambda: buffer.combine(**tune_args))[0]
     if local_rank == 0:
         print(
             f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
@@ -663,35 +617,11 @@ if __name__ == "__main__":
         help="Whether to enable dynamic tokens for testing",
     )
     parser.add_argument(
-        "--use-fp8",
-        dest="use_fp8",
-        action="store_true",
-        help="Use use_fp8=True bool flag for normal dispatch. Architecture-aware: "
-        "A5 -> pertoken_fp8_e4m3, A2/A3 -> int8 (with warning). "
-        "Mutually exclusive with --quant-type.",
-    )
-    parser.add_argument(
-        "--use-mxfp4",
-        dest="use_mxfp4",
-        action="store_true",
-        help="Use use_mxfp4=True bool flag for normal dispatch. "
-        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
-    )
-    parser.add_argument(
-        "--use-mxfp8",
-        dest="use_mxfp8",
-        action="store_true",
-        help="Use use_mxfp8=True bool flag for normal dispatch. "
-        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
-    )
-    parser.add_argument(
-        "--sync-bench",
-        dest="sync_bench",
-        action="store_true",
-        help="Enable rank synchronization (dist.barrier) during combine bench. "
-        "Prevents timeout with tiny token counts.",
+        "--quant-type",
+        dest="quant_type",
+        type=str,
+        default="bf16",
+        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 

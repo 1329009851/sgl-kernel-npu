@@ -55,7 +55,7 @@ def inplace_unique(x: torch.Tensor, num_slots: int):
     x[:, :valid_len] = sorted_bin_idx[:, :valid_len]
 
 
-def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None, sync_fn=None):
+def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     device = torch.device("npu")
     torch.npu.synchronize()
 
@@ -65,9 +65,6 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None, sync_fn=
     # Warmup
     for _ in range(num_warmups):
         fn()
-        # torch.npu.synchronize()
-        if sync_fn is not None:
-            sync_fn()
 
     # Flush L2 cache
     cache.zero_()
@@ -77,8 +74,6 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None, sync_fn=
     times = []
     for _ in range(num_tests):
         torch.npu.synchronize()
-        if sync_fn is not None:
-            sync_fn()
         start = torch.npu.Event(enable_timing=True)
         end = torch.npu.Event(enable_timing=True)
 
