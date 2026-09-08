@@ -65,6 +65,7 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     # Warmup
     for _ in range(num_warmups):
         fn()
+        torch.npu.synchronize()
 
     # Flush L2 cache
     cache.zero_()
