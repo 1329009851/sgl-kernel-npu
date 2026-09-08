@@ -907,12 +907,19 @@ jobs:
       #     --num-tests 10 \
       #     --weight-format NZ
 
-      - name: Run combine timeout regression test
+      - name: Run combine timeout regression test (2 processes)
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 8192
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 2 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --use-fp8
+
+      - name: Run combine timeout regression test (4 processes)
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 8192
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --use-fp8
 
   finish:
     if: always()
