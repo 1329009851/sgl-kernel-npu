@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import threading
 import time
 from typing import Optional
 
@@ -441,7 +442,17 @@ def test_main(
             "async_finish": False,
             "topk_weights": handle[7],
         }
+        _timer = threading.Timer(
+            30,
+            lambda: (
+                print("[TIMEOUT] combine test: timed out after 30s", flush=True),
+                os._exit(1),
+            ),
+        )
+        _timer.start()
+        dist.barrier()
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
+        _timer.cancel()
         check_x = combined_x.float()
 
         ref_x = x_pure_rand if current_x is x_pure_rand else x
@@ -546,7 +557,17 @@ def test_main(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    t = bench(lambda: buffer.combine(**tune_args))[0]
+    _timer = threading.Timer(
+        30,
+        lambda: (
+            print("[tuning] Combine TIMEOUT: timed out after 30s", flush=True),
+            os._exit(1),
+        ),
+    )
+    _timer.start()
+    _sync_fn = dist.barrier if args.sync_bench else None
+    t = bench(lambda: buffer.combine(**tune_args), sync_fn=_sync_fn)[0]
+    _timer.cancel()
     if local_rank == 0:
         print(
             f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
@@ -664,6 +685,13 @@ if __name__ == "__main__":
         help="Use use_mxfp8=True bool flag for normal dispatch. "
         "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
         "Mutually exclusive with --quant-type.",
+    )
+    parser.add_argument(
+        "--sync-bench",
+        dest="sync_bench",
+        action="store_true",
+        help="Enable rank synchronization (dist.barrier) during combine bench. "
+        "Prevents timeout with tiny token counts.",
     )
     args = parser.parse_args()
 
