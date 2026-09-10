@@ -546,7 +546,6 @@ def test_main(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    dist.barrier()
     t = bench(lambda: buffer.combine(**tune_args), sync_fn=dist.barrier)[0]
     if local_rank == 0:
         print(

@@ -65,8 +65,8 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None, sync_fn=
     # Warmup
     for _ in range(num_warmups):
         fn()
-        # if sync_fn is not None:
-        #     sync_fn()
+        if sync_fn is not None:
+            sync_fn()
 
     # Flush L2 cache
     cache.zero_()
@@ -76,8 +76,8 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None, sync_fn=
     times = []
     for _ in range(num_tests):
         torch.npu.synchronize()
-        # if sync_fn is not None:
-        #     sync_fn()
+        if sync_fn is not None:
+            sync_fn()
         start = torch.npu.Event(enable_timing=True)
         end = torch.npu.Event(enable_timing=True)
 
