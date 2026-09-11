@@ -588,7 +588,10 @@ def test_main(
             )
             send_head_np = send_head.cpu().numpy()
             for r in range(send_head_np.shape[0]):
-                print(f"[debug iter={_bench_counter[0]}] rank {r} send_head: {send_head_np[r]}", flush=True)
+                print(
+                    f"[debug iter={_bench_counter[0]}] rank {r} send_head: {send_head_np[r]}",
+                    flush=True,
+                )
         print(
             f"[bench iter={_bench_counter[0]}] rank={rank} before combine", flush=True
         )
