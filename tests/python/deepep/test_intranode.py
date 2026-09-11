@@ -562,7 +562,13 @@ def test_main(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    t = bench(lambda: buffer.combine(**tune_args), sync_fn=dist.barrier)[0]
+    _bench_counter = [0]
+    def _combine_with_debug():
+        _bench_counter[0] += 1
+        print(f"[bench iter={_bench_counter[0]}] rank={rank} before combine", flush=True)
+        buffer.combine(**tune_args)
+        print(f"[bench iter={_bench_counter[0]}] rank={rank} after combine", flush=True)
+    t = bench(_combine_with_debug, sync_fn=dist.barrier)[0]
     if local_rank == 0:
         print(
             f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
