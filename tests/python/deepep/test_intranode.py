@@ -538,7 +538,6 @@ def test_main(
     }
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-
     # Tune combine performance
     tune_args = {
         "x": recv_x,
