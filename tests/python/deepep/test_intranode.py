@@ -541,13 +541,37 @@ def test_main(
 
     # Debug: print handle info before combine bench
     if local_rank == 0:
-        _, _, _, recv_src_idx, is_token_in_rank, send_head, topk_idx_dbg, topk_weights_dbg = handle
-        print(f"[debug] recv_src_idx shape={recv_src_idx.shape}, dtype={recv_src_idx.dtype}", flush=True)
-        print(f"[debug] recv_src_idx (first 20):\n{recv_src_idx[:20].cpu().numpy()}", flush=True)
-        print(f"[debug] send_head shape={send_head.shape}, dtype={send_head.dtype}", flush=True)
+        (
+            _,
+            _,
+            _,
+            recv_src_idx,
+            is_token_in_rank,
+            send_head,
+            topk_idx_dbg,
+            topk_weights_dbg,
+        ) = handle
+        print(
+            f"[debug] recv_src_idx shape={recv_src_idx.shape}, dtype={recv_src_idx.dtype}",
+            flush=True,
+        )
+        print(
+            f"[debug] recv_src_idx (first 20):\n{recv_src_idx[:20].cpu().numpy()}",
+            flush=True,
+        )
+        print(
+            f"[debug] send_head shape={send_head.shape}, dtype={send_head.dtype}",
+            flush=True,
+        )
         print(f"[debug] send_head:\n{send_head.cpu().numpy()}", flush=True)
-        print(f"[debug] topk_idx shape={topk_idx_dbg.shape}, first 5 rows:\n{topk_idx_dbg[:5].cpu().numpy()}", flush=True)
-        print(f"[debug] num_recv_tokens={recv_x.shape[0]}, hidden={recv_x.shape[1]}", flush=True)
+        print(
+            f"[debug] topk_idx shape={topk_idx_dbg.shape}, first 5 rows:\n{topk_idx_dbg[:5].cpu().numpy()}",
+            flush=True,
+        )
+        print(
+            f"[debug] num_recv_tokens={recv_x.shape[0]}, hidden={recv_x.shape[1]}",
+            flush=True,
+        )
         # Per-rank send counts from send_head
         send_head_np = send_head.cpu().numpy()
         for r in range(send_head_np.shape[0]):
@@ -563,11 +587,15 @@ def test_main(
         "topk_weights": handle[7],
     }
     _bench_counter = [0]
+
     def _combine_with_debug():
         _bench_counter[0] += 1
-        print(f"[bench iter={_bench_counter[0]}] rank={rank} before combine", flush=True)
+        print(
+            f"[bench iter={_bench_counter[0]}] rank={rank} before combine", flush=True
+        )
         buffer.combine(**tune_args)
         print(f"[bench iter={_bench_counter[0]}] rank={rank} after combine", flush=True)
+
     t = bench(_combine_with_debug, sync_fn=dist.barrier)[0]
     if local_rank == 0:
         print(
