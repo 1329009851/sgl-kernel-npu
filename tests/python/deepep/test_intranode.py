@@ -539,45 +539,6 @@ def test_main(
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 
-    # Debug: print handle info before combine bench
-    if local_rank == 0:
-        (
-            _,
-            _,
-            _,
-            recv_src_idx,
-            is_token_in_rank,
-            send_head,
-            topk_idx_dbg,
-            topk_weights_dbg,
-        ) = handle
-        print(
-            f"[debug] recv_src_idx shape={recv_src_idx.shape}, dtype={recv_src_idx.dtype}",
-            flush=True,
-        )
-        print(
-            f"[debug] recv_src_idx (first 20):\n{recv_src_idx[:20].cpu().numpy()}",
-            flush=True,
-        )
-        print(
-            f"[debug] send_head shape={send_head.shape}, dtype={send_head.dtype}",
-            flush=True,
-        )
-        print(f"[debug] send_head:\n{send_head.cpu().numpy()}", flush=True)
-        print(
-            f"[debug] topk_idx shape={topk_idx_dbg.shape}, first 5 rows:\n{topk_idx_dbg[:5].cpu().numpy()}",
-            flush=True,
-        )
-        print(
-            f"[debug] num_recv_tokens={recv_x.shape[0]}, hidden={recv_x.shape[1]}",
-            flush=True,
-        )
-        # Per-rank send counts from send_head
-        send_head_np = send_head.cpu().numpy()
-        for r in range(send_head_np.shape[0]):
-            print(f"[debug] rank {r} send_head: {send_head_np[r]}", flush=True)
-        print("", flush=True)
-
     # Tune combine performance
     tune_args = {
         "x": recv_x,
@@ -590,6 +551,44 @@ def test_main(
 
     def _combine_with_debug():
         _bench_counter[0] += 1
+        if local_rank == 0:
+            (
+                _,
+                _,
+                _,
+                recv_src_idx,
+                is_token_in_rank,
+                send_head,
+                topk_idx_dbg,
+                topk_weights_dbg,
+            ) = handle
+            print(
+                f"[debug iter={_bench_counter[0]}] recv_src_idx shape={recv_src_idx.shape}, dtype={recv_src_idx.dtype}",
+                flush=True,
+            )
+            print(
+                f"[debug iter={_bench_counter[0]}] recv_src_idx (first 20):\n{recv_src_idx[:20].cpu().numpy()}",
+                flush=True,
+            )
+            print(
+                f"[debug iter={_bench_counter[0]}] send_head shape={send_head.shape}, dtype={send_head.dtype}",
+                flush=True,
+            )
+            print(
+                f"[debug iter={_bench_counter[0]}] send_head:\n{send_head.cpu().numpy()}",
+                flush=True,
+            )
+            print(
+                f"[debug iter={_bench_counter[0]}] topk_idx shape={topk_idx_dbg.shape}, first 5 rows:\n{topk_idx_dbg[:5].cpu().numpy()}",
+                flush=True,
+            )
+            print(
+                f"[debug iter={_bench_counter[0]}] num_recv_tokens={recv_x.shape[0]}, hidden={recv_x.shape[1]}",
+                flush=True,
+            )
+            send_head_np = send_head.cpu().numpy()
+            for r in range(send_head_np.shape[0]):
+                print(f"[debug iter={_bench_counter[0]}] rank {r} send_head: {send_head_np[r]}", flush=True)
         print(
             f"[bench iter={_bench_counter[0]}] rank={rank} before combine", flush=True
         )
