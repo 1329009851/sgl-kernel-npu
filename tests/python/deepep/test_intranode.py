@@ -549,7 +549,6 @@ def test_main(
     _bench_counter = [0]
     _recv_src_idx = handle[3]
     _send_head = handle[5]
-    _debug_iters = {1, 50, 100}
 
     def _combine_with_debug():
         _bench_counter[0] += 1
@@ -558,17 +557,16 @@ def test_main(
             f"[bench iter={_iter}] rank={rank} before combine, ts={time.time():.6f}",
             flush=True,
         )
-        if _iter in _debug_iters:
-            _src_idx_np = _recv_src_idx[:20].cpu().numpy()
-            _send_head_np = _send_head.cpu().numpy()
-            print(
-                f"[debug iter={_iter}] rank={rank} recv_src_idx[:20]:\n{_src_idx_np}",
-                flush=True,
-            )
-            print(
-                f"[debug iter={_iter}] rank={rank} send_head:\n{_send_head_np}",
-                flush=True,
-            )
+        _src_idx_np = _recv_src_idx[:20].cpu().numpy()
+        _send_head_np = _send_head.cpu().numpy()
+        print(
+            f"[debug iter={_iter}] rank={rank} recv_src_idx[:20]:\n{_src_idx_np}",
+            flush=True,
+        )
+        print(
+            f"[debug iter={_iter}] rank={rank} send_head:\n{_send_head_np}",
+            flush=True,
+        )
         buffer.combine(**tune_args)
         print(
             f"[bench iter={_iter}] rank={rank} after combine, ts={time.time():.6f}",
