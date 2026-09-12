@@ -819,7 +819,13 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
-      - name: Run combine timeout debug test
+      - name: Run combine timeout debug test (topk=4)
+        env:
+          HCCL_BUFFSIZE: 8192
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 4 --num-experts 64 --use-fp8
+      - name: Run combine timeout debug test (topk=1, active-ranks=0)
         env:
           HCCL_BUFFSIZE: 8192
         timeout-minutes: 10
