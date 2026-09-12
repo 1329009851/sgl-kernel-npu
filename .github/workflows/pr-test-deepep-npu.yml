@@ -824,7 +824,7 @@ jobs:
           HCCL_BUFFSIZE: 8192
         timeout-minutes: 10
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 4 --num-experts 64 --use-fp8
 
   finish:
     if: always()
